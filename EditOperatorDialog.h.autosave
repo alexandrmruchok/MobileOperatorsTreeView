@@ -1,0 +1,73 @@
+#ifndef EDITOPERATORDIALOG_H
+#define EDITOPERATORDIALOG_H
+
+#include <QDialog>
+#include <QStateMachine>
+#include <QMap>
+
+namespace Ui {
+class EditOperatorDialog;
+}
+
+class EditOperatorDialog : public QDialog
+{
+    Q_OBJECT
+
+public:
+    explicit EditOperatorDialog(QWidget *parent = nullptr);
+    ~EditOperatorDialog();
+
+    void addCountry(int a_mcc, const QString& a_code);
+
+
+signals:
+    void mccChangedToRight();
+    void mccChangedToWrong();
+
+    void nameChangedToFilled();
+    void nameChangedToEmpty();
+
+    void allFieldsBecameRight();
+    void openedForEditing();
+    void openedForCreating();
+
+public slots:
+    void openForEditing();
+    void openForCreating();
+
+    void setName(const QString& a_name);
+    void setMNC(const QString& a_MNC);
+    void setMCC(const QString& a_MCC);
+    
+private slots:
+    void checkAndUpdateMCC();
+    void updateOperatorIcon();
+
+private:
+    int MNC();
+    int MCC();
+
+    Ui::EditOperatorDialog *ui;
+
+    QStateMachine m_stateMachine;
+
+    QState m_stt_mode;
+    QState m_stt_mode_creating;
+    QState m_stt_mode_editing;
+
+    QState m_stt_acceptability;
+    QState m_stt_acceptability_yes;
+    QState m_stt_acceptability_no;
+
+    QState m_stt_nameFilling;
+    QState m_stt_nameFilling_filled;
+    QState m_stt_nameFilling_empty;
+
+    QState m_stt_mccValidation;
+    QState m_stt_mccValidation_right;
+    QState m_stt_mccValidation_wrong;
+
+    QMap<int, QString> m_countriesMap;
+};
+
+#endif // EDITOPERATORDIALOG_H

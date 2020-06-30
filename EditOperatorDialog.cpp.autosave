@@ -1,0 +1,193 @@
+#include "EditOperatorDialog.h"
+#include "ui_EditOperatorDialog.h"
+
+#include <QDebug>
+
+#include "Utils.h"
+#include "defines.h"
+#include <QFileInfo>
+
+EditOperatorDialog::EditOperatorDialog(QWidget *parent)
+    : QDialog(parent)
+    , ui(new Ui::EditOperatorDialog)
+    , m_stt_mode                 (&m_stateMachine)
+    , m_stt_mode_creating        (&m_stt_mode)
+    , m_stt_mode_editing         (&m_stt_mode)
+    , m_stt_acceptability        (&m_stateMachine)
+    , m_stt_acceptability_yes    (&m_stt_acceptability)
+    , m_stt_acceptability_no     (&m_stt_acceptability)
+    , m_stt_nameFilling          (&m_stateMachine)
+    , m_stt_nameFilling_filled   (&m_stt_nameFilling)
+    , m_stt_nameFilling_empty    (&m_stt_nameFilling)
+    , m_stt_mccValidation        (&m_stateMachine)
+    , m_stt_mccValidation_right  (&m_stt_mccValidation)
+    , m_stt_mccValidation_wrong  (&m_stt_mccValidation)
+{
+    ui->setupUi(this);
+
+    m_stateMachine.setChildMode(QState::ParallelStates);
+    m_stateMachine.setGlobalRestorePolicy(QState::RestorePolicy::RestoreProperties);
+    m_stt_mode.setInitialState(&m_stt_mode_creating);
+    m_stt_acceptability.setInitialState(&m_stt_acceptability_no);
+    m_stt_nameFilling.setInitialState(&m_stt_nameFilling_empty);
+    m_stt_mccValidation.setInitialState(&m_stt_mccValidation_wrong);
+
+    m_stt_mccValidation_wrong.addTransition(this, &EditOperatorDialog::mccChangedToRight, &m_stt_mccValidation_right);
+    m_stt_mccValidation_right.addTransition(this, &EditOperatorDialog::mccChangedToWrong, &m_stt_mccValidation_wrong);
+    m_stt_nameFilling_empty.addTransition (this, &EditOperatorDialog::nameChangedToFilled, &m_stt_nameFilling_filled);
+    m_stt_nameFilling_filled.addTransition(this, &EditOperatorDialog::nameChangedToEmpty, &m_stt_nameFilling_empty);
+
+    m_stt_acceptability_yes.addTransition(this, &EditOperatorDialog::mccChangedToWrong  , &m_stt_acceptability_no);
+    m_stt_acceptability_yes.addTransition(this, &EditOperatorDialog::nameChangedToEmpty , &m_stt_acceptability_no);
+    m_stt_acceptability_no .addTransition(this, &EditOperatorDialog::allFieldsBecameRight, &m_stt_acceptability_yes);
+
+    m_stt_mode_editing  .addTransition(this, &EditOperatorDialog::openForCreating, &m_stt_mode_creating);
+    m_stt_mode_creating .addTransition(this, &EditOperatorDialog::openForEditing , &m_stt_mode_editing );
+
+
+    connect(&m_stt_acceptability_yes, &QState::entered, [this]{
+        qDebug() << "====================" << "m_stt_acceptability_yes" << "entered";
+    });
+    connect(&m_stt_acceptability_no, &QState::entered, [this]{
+        qDebug() << "====================" << "m_stt_acceptability_no" << "entered";
+    });
+    connect(&m_stt_mccValidation_wrong, &QState::entered, [this]{
+        qDebug() << "====================" << "m_stt_mccValidation_wrong" << "entered";
+    });
+    connect(&m_stt_mccValidation_right, &QState::entered, [this]{
+        qDebug() << "====================" << "m_stt_mccValidation_right" << "entered";
+    });
+
+    connect(&m_stt_nameFilling_empty, &QState::entered, [this]{
+        qDebug() << "====================" << "m_stt_nameFilling_empty" << "entered";
+    });
+    connect(&m_stt_nameFilling_filled, &QState::entered, [this]{
+        qDebug() << "====================" << "m_stt_nameFilling_filled" << "entered";
+    });
+
+
+    connect(&m_stt_mccValidation_wrong, &QState::entered, [this]{
+        Utils::setPropertyAndUpdateStyle(this->ui->lneMCC, Properties::WRONG, true);
+    });
+    connect(&m_stt_mccValidation_right, &QState::entered, [this]{
+        Utils::setPropertyAndUpdateStyle(this->ui->lneMCC, Properties::WRONG, false);
+        if (m_stt_nameFilling_filled.active())
+            emit this->allFieldsBecameRight();
+    });
+
+    connect(&m_stt_nameFilling_empty, &QState::entered, [this]{
+        Utils::setPropertyAndUpdateStyle(this->ui->lneName, Properties::WRONG, true);
+    });
+    connect(&m_stt_nameFilling_filled, &QState::entered, [this]
+    {
+        Utils::setPropertyAndUpdateStyle(this->ui->lneName, Properties::WRONG, false);
+        if (m_stt_mccValidation_right.active())
+            emit this->allFieldsBecameRight();
+    });
+
+    m_stt_acceptability_no.assignProperty(this->ui->pbtSave, qPrintable(Properties::ENABLED), false);
+    m_stt_mode_editing    .assignProperty(this->ui->lneMCC , qPrintable(Properties::ENABLED), false);
+    m_stt_mode_editing    .assignProperty(this->ui->lneMNC , qPrintable(Properties::ENABLED), false);
+
+    m_stateMachine.start();
+
+    QIntValidator *intValidator = new QIntValidator(0, 99999, this);
+    ui->lneMCC->setValidator(intValidator);
+    ui->lneMNC->setValidator(intValidator);
+
+    connect(ui->lneMCC, &QLineEdit::textChanged, this, &EditOperatorDialog::checkAndUpdateMCC);
+    connect(ui->lneMNC, &QLineEdit::textChanged, this, &EditOperatorDialog::updateOperatorIcon);
+
+    connect(ui->lneName, &QLineEdit::textChanged, [this](const QString &)
+    {
+        qDebug() << "lneName::textChanged()";
+        if (this->ui->lneName->text().isEmpty())
+            emit this->nameChangedToEmpty();
+        else
+            emit this->nameChangedToFilled();
+    });
+}
+
+EditOperatorDialog::~EditOperatorDialog()
+{
+    delete ui;
+}
+
+void EditOperatorDialog::addCountry(int a_mcc, const QString &a_code)
+{
+    m_countriesMap.insert(a_mcc, a_code);
+}
+
+
+void EditOperatorDialog::checkAndUpdateMCC()
+{
+    qDebug() << "EditOperatorDialog::checkAndUpdateMCC()";
+    QString countryCode = m_countriesMap.value(this->MCC());
+    QString iconPath;
+
+    if (countryCode.isEmpty())
+    {
+        emit this->mccChangedToWrong();
+        iconPath = ":/icons/question.png";
+    }
+    else
+    {
+        emit this->mccChangedToRight();
+        iconPath = QString(":/icons/Countries/%1.png").arg(countryCode);
+    }
+    this->ui->lblMCCIcon->setPixmap(iconPath);
+}
+
+void EditOperatorDialog::updateOperatorIcon()
+{
+    qDebug() << "updateOperatorIcon";
+
+    QString filePath{":/icons/Operators/%1_%2.png"};
+
+    filePath = filePath.arg(this->MCC()).arg(this->MNC());
+    if (!QFileInfo::exists(filePath)) {
+        filePath = ":/icons/question.png";
+    }
+
+    this->ui->lblOperatorIcon->setPixmap(filePath);
+}
+
+void EditOperatorDialog::setName(const QString &a_name)
+{
+    this->ui->lneName->setText(a_name);
+}
+
+void EditOperatorDialog::setMNC(const QString &a_MNC)
+{
+    this->ui->lneMNC->setText(a_MNC);
+}
+
+void EditOperatorDialog::setMCC(const QString &a_MCC)
+{
+    this->ui->lneMCC->setText(a_MCC);
+}
+
+void EditOperatorDialog::openForEditing()
+{
+    emit this->openedForEditing();
+    this->show();
+}
+
+void EditOperatorDialog::openForCreating()
+{
+    this->setName("");
+    this->setMNC("");
+    this->setMCC("");
+    emit this->openedForCreating();
+    this->show();
+}
+
+int EditOperatorDialog::MNC()
+{
+    return this->ui->lneMNC->text().toInt();
+}
+
+int EditOperatorDialog::MCC()
+{
+    return this->ui->lneMCC->text().toInt();
+}
