@@ -11,7 +11,7 @@
 
 class MobileOperatorsModel : public QAbstractItemModel
 {
-    MobileOperatorsModel(QObject *a_parent = nullptr); ///Is private becouse MobileOperatorsModel is a singleton
+    MobileOperatorsModel(QObject *a_parent = nullptr); ///Is private because MobileOperatorsModel is a singleton
 
 public:
     ~MobileOperatorsModel();
@@ -46,7 +46,7 @@ private:
 
     void loadFromDb();
     QString sqlQuery();
-    QVector<Country*> m_countries;
+    QVector<Country*> m_countries; // If it will work slow, change to sorted by mcc list for log(n) searcheng time.
 
     const QString MCC_COLUMN {"mcc"};
     const QString COUNTRY_CODE_COLUMN {"countryCode"};
